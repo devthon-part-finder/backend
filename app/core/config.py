@@ -86,6 +86,24 @@ class Settings(BaseSettings):
     VECTOR_SEARCH_LIMIT: int = 10
     
     # ==========================================================================
+    # WEB AGENT CONFIGURATION (Serper + Gemini)
+    # ==========================================================================
+    # Serper.dev API key for Google search
+    SERPER_API_KEY: Optional[str] = None
+    
+    # Google Gemini API key for AI parsing
+    GEMINI_API_KEY: Optional[str] = None
+    
+    # Timeout for web requests in seconds
+    WEB_AGENT_TIMEOUT: int = 30
+    
+    # Maximum bytes to scrape from a page (limit for Gemini context)
+    WEB_AGENT_MAX_SCRAPE_BYTES: int = 15000
+    
+    # Maximum number of results to return
+    WEB_AGENT_MAX_RESULTS: int = 10
+    
+    # ==========================================================================
     # ENVIRONMENT
     # ==========================================================================
     # Environment mode: "development", "staging", "production"
