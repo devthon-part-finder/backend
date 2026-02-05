@@ -211,6 +211,16 @@ class UserLogin(BaseModel):
     )
 
 
+class RefreshTokenRequest(BaseModel):
+    """
+    Schema for refresh token requests.
+    """
+    refresh_token: str = Field(
+        ...,
+        description="Refresh token"
+    )
+
+
 class PasswordChange(BaseModel):
     """
     Schema for password change requests.

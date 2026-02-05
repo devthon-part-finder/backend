@@ -68,6 +68,8 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int  # Seconds until expiration
+    refresh_token: Optional[str] = None
+    refresh_expires_in: Optional[int] = None
 
 
 # ==============================================================================
@@ -96,6 +98,8 @@ def create_access_token(
         )
     """
     to_encode = data.copy()
+    if "sub" in to_encode:
+        to_encode["sub"] = str(to_encode["sub"])
     
     # Set expiration time
     if expires_delta:
@@ -108,6 +112,7 @@ def create_access_token(
     to_encode.update({
         "exp": expire,
         "iat": datetime.now(timezone.utc),  # Issued at
+        "type": "access",
     })
     
     # Encode the token
@@ -121,7 +126,41 @@ def create_access_token(
     return encoded_jwt
 
 
-def verify_token(token: str) -> Optional[TokenData]:
+def create_refresh_token(
+    data: dict,
+    expires_delta: Optional[timedelta] = None
+) -> str:
+    """
+    Create a JWT refresh token.
+    """
+    to_encode = data.copy()
+    if "sub" in to_encode:
+        to_encode["sub"] = str(to_encode["sub"])
+
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(
+            days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+        )
+
+    to_encode.update({
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+        "type": "refresh",
+    })
+
+    encoded_jwt = jwt.encode(
+        to_encode,
+        settings.SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM
+    )
+
+    logger.debug(f"Created refresh token, expires at {expire}")
+    return encoded_jwt
+
+
+def verify_token(token: str, token_type: Optional[str] = "access") -> Optional[TokenData]:
     """
     Verify and decode a JWT token.
     
@@ -141,6 +180,14 @@ def verify_token(token: str) -> Optional[TokenData]:
             algorithms=[settings.JWT_ALGORITHM]
         )
         
+        token_kind: Optional[str] = payload.get("type")
+        if token_type == "access" and token_kind is not None and token_kind != "access":
+            logger.warning("Token type mismatch (expected access)")
+            return None
+        if token_type == "refresh" and token_kind != "refresh":
+            logger.warning("Token type mismatch (expected refresh)")
+            return None
+
         user_id: str = payload.get("sub")
         email: str = payload.get("email")
         scopes: list = payload.get("scopes", [])
@@ -154,6 +201,13 @@ def verify_token(token: str) -> Optional[TokenData]:
     except JWTError as e:
         logger.warning(f"Token verification failed: {e}")
         return None
+
+
+def verify_refresh_token(token: str) -> Optional[TokenData]:
+    """
+    Verify and decode a refresh token.
+    """
+    return verify_token(token, token_type="refresh")
 
 
 # ============================================================================== 
