@@ -21,6 +21,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
 from jose import JWTError, jwt
 from pydantic import BaseModel
+from passlib.context import CryptContext
 import logging
 
 from app.core.config import settings
@@ -155,44 +156,34 @@ def verify_token(token: str) -> Optional[TokenData]:
         return None
 
 
-# ==============================================================================
-# PASSWORD HASHING (PLACEHOLDER)
-# ==============================================================================
-# TODO: Install passlib[bcrypt] and implement proper password hashing
-#
-# from passlib.context import CryptContext
-# pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-#
-# def hash_password(password: str) -> str:
-#     return pwd_context.hash(password)
-#
-# def verify_password(plain_password: str, hashed_password: str) -> bool:
-#     return pwd_context.verify(plain_password, hashed_password)
+# ============================================================================== 
+# PASSWORD HASHING
+# ============================================================================== 
+
+# Passlib context for bcrypt hashing with SHA-256 pre-hash
+# Avoids bcrypt 72-byte password limit while retaining bcrypt verification.
+pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
 
 def hash_password(password: str) -> str:
     """
     Hash a password for storage.
     
-    PLACEHOLDER: Implement with passlib[bcrypt] in production!
+    Uses passlib[bcrypt].
     
     Usage:
         hashed = hash_password("user_password")
         # Store hashed in database
     """
-    # TODO: Replace with actual hashing
-    logger.warning("Using placeholder password hashing - NOT SECURE!")
-    return f"hashed_{password}"
+    return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a password against its hash.
     
-    PLACEHOLDER: Implement with passlib[bcrypt] in production!
+    Uses passlib[bcrypt].
     """
-    # TODO: Replace with actual verification
-    logger.warning("Using placeholder password verification - NOT SECURE!")
-    return hashed_password == f"hashed_{plain_password}"
+    return pwd_context.verify(plain_password, hashed_password)
 
 
 # ==============================================================================

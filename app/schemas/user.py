@@ -27,6 +27,7 @@
 #   5. UserRead returned to client (no password field at all)
 # ==============================================================================
 
+from uuid import UUID
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import Optional
 from datetime import datetime
@@ -125,7 +126,7 @@ class UserRead(UserBase):
     """
     model_config = ConfigDict(from_attributes=True)
     
-    id: str = Field(
+    id: UUID = Field(
         ...,
         description="Unique identifier"
     )
