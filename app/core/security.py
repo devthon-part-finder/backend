@@ -21,6 +21,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHeader
 from jose import JWTError, jwt
 from pydantic import BaseModel
+from passlib.context import CryptContext
 import logging
 
 from app.core.config import settings
@@ -67,6 +68,8 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int  # Seconds until expiration
+    refresh_token: Optional[str] = None
+    refresh_expires_in: Optional[int] = None
 
 
 # ==============================================================================
@@ -95,6 +98,8 @@ def create_access_token(
         )
     """
     to_encode = data.copy()
+    if "sub" in to_encode:
+        to_encode["sub"] = str(to_encode["sub"])
     
     # Set expiration time
     if expires_delta:
@@ -107,6 +112,7 @@ def create_access_token(
     to_encode.update({
         "exp": expire,
         "iat": datetime.now(timezone.utc),  # Issued at
+        "type": "access",
     })
     
     # Encode the token
@@ -120,7 +126,41 @@ def create_access_token(
     return encoded_jwt
 
 
-def verify_token(token: str) -> Optional[TokenData]:
+def create_refresh_token(
+    data: dict,
+    expires_delta: Optional[timedelta] = None
+) -> str:
+    """
+    Create a JWT refresh token.
+    """
+    to_encode = data.copy()
+    if "sub" in to_encode:
+        to_encode["sub"] = str(to_encode["sub"])
+
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(
+            days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+        )
+
+    to_encode.update({
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+        "type": "refresh",
+    })
+
+    encoded_jwt = jwt.encode(
+        to_encode,
+        settings.SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM
+    )
+
+    logger.debug(f"Created refresh token, expires at {expire}")
+    return encoded_jwt
+
+
+def verify_token(token: str, token_type: Optional[str] = "access") -> Optional[TokenData]:
     """
     Verify and decode a JWT token.
     
@@ -140,6 +180,14 @@ def verify_token(token: str) -> Optional[TokenData]:
             algorithms=[settings.JWT_ALGORITHM]
         )
         
+        token_kind: Optional[str] = payload.get("type")
+        if token_type == "access" and token_kind is not None and token_kind != "access":
+            logger.warning("Token type mismatch (expected access)")
+            return None
+        if token_type == "refresh" and token_kind != "refresh":
+            logger.warning("Token type mismatch (expected refresh)")
+            return None
+
         user_id: str = payload.get("sub")
         email: str = payload.get("email")
         scopes: list = payload.get("scopes", [])
@@ -155,44 +203,41 @@ def verify_token(token: str) -> Optional[TokenData]:
         return None
 
 
-# ==============================================================================
-# PASSWORD HASHING (PLACEHOLDER)
-# ==============================================================================
-# TODO: Install passlib[bcrypt] and implement proper password hashing
-#
-# from passlib.context import CryptContext
-# pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-#
-# def hash_password(password: str) -> str:
-#     return pwd_context.hash(password)
-#
-# def verify_password(plain_password: str, hashed_password: str) -> bool:
-#     return pwd_context.verify(plain_password, hashed_password)
+def verify_refresh_token(token: str) -> Optional[TokenData]:
+    """
+    Verify and decode a refresh token.
+    """
+    return verify_token(token, token_type="refresh")
+
+
+# ============================================================================== 
+# PASSWORD HASHING
+# ============================================================================== 
+
+# Passlib context for bcrypt hashing with SHA-256 pre-hash
+# Avoids bcrypt 72-byte password limit while retaining bcrypt verification.
+pwd_context = CryptContext(schemes=["bcrypt_sha256"], deprecated="auto")
 
 def hash_password(password: str) -> str:
     """
     Hash a password for storage.
     
-    PLACEHOLDER: Implement with passlib[bcrypt] in production!
+    Uses passlib[bcrypt].
     
     Usage:
         hashed = hash_password("user_password")
         # Store hashed in database
     """
-    # TODO: Replace with actual hashing
-    logger.warning("Using placeholder password hashing - NOT SECURE!")
-    return f"hashed_{password}"
+    return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verify a password against its hash.
     
-    PLACEHOLDER: Implement with passlib[bcrypt] in production!
+    Uses passlib[bcrypt].
     """
-    # TODO: Replace with actual verification
-    logger.warning("Using placeholder password verification - NOT SECURE!")
-    return hashed_password == f"hashed_{plain_password}"
+    return pwd_context.verify(plain_password, hashed_password)
 
 
 # ==============================================================================

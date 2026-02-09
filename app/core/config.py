@@ -54,10 +54,13 @@ class Settings(BaseSettings):
     # ==========================================================================
     # Secret key for JWT token signing (generate with: openssl rand -hex 32)
     # IMPORTANT: Change this in production!
-    SECRET_KEY: str = "your-super-secret-key-change-in-production"
+    SECRET_KEY: str = "harsha+secretGF"
     
     # JWT token expiration time in minutes
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
+    # Refresh token expiration time in days
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
     # Algorithm for JWT encoding
     JWT_ALGORITHM: str = "HS256"
@@ -84,6 +87,24 @@ class Settings(BaseSettings):
     
     # Number of results to return for similarity search
     VECTOR_SEARCH_LIMIT: int = 10
+    
+    # ==========================================================================
+    # WEB AGENT CONFIGURATION (Serper + Gemini)
+    # ==========================================================================
+    # Serper.dev API key for Google search
+    SERPER_API_KEY: Optional[str] = None
+    
+    # Google Gemini API key for AI parsing
+    GEMINI_API_KEY: Optional[str] = None
+    
+    # Timeout for web requests in seconds
+    WEB_AGENT_TIMEOUT: int = 30
+    
+    # Maximum bytes to scrape from a page (limit for Gemini context)
+    WEB_AGENT_MAX_SCRAPE_BYTES: int = 15000
+    
+    # Maximum number of results to return
+    WEB_AGENT_MAX_RESULTS: int = 10
     
     # ==========================================================================
     # ENVIRONMENT

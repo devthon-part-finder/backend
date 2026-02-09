@@ -23,10 +23,11 @@ from app.schemas.user import (
     UserList,
     UserSearchResponse,
     UserLogin,
-    PasswordChange
+    PasswordChange,
+    RefreshTokenRequest
 )
 from app.services import user_service
-from app.core.security import create_access_token, Token
+from app.core.security import create_access_token, create_refresh_token, verify_refresh_token, Token
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -55,6 +56,40 @@ def create_user_controller(session: Session, user_data: UserCreate) -> UserRead:
         user = user_service.create_user(session, user_data)
         logger.info(f"Controller: Created user {user.id}")
         return UserRead.model_validate(user)
+    except ValueError as e:
+        logger.warning(f"Registration failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error creating user: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create user: {str(e)}"
+        )
+
+
+def register_with_tokens_controller(session: Session, user_data: UserCreate) -> Token:
+    """
+    Handle user registration request and return tokens.
+    """
+    try:
+        user = user_service.create_user(session, user_data)
+        logger.info(f"Controller: Created user {user.id}")
+
+        token_data = {"sub": str(user.id), "username": user.username, "email": user.email}
+        access_token = create_access_token(data=token_data)
+        refresh_token = create_refresh_token(data=token_data)
+
+        from app.core.config import settings
+        return Token(
+            access_token=access_token,
+            token_type="bearer",
+            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            refresh_token=refresh_token,
+            refresh_expires_in=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+        )
     except ValueError as e:
         logger.warning(f"Registration failed: {e}")
         raise HTTPException(
@@ -229,14 +264,56 @@ def login_controller(session: Session, login_data: UserLogin) -> Token:
             headers={"WWW-Authenticate": "Bearer"}
         )
     
-    # Create access token
-    access_token = create_access_token(data={"sub": user.id, "email": user.email})
+    # Create access + refresh tokens
+    token_data = {"sub": str(user.id), "username": user.username, "email": user.email}
+    access_token = create_access_token(data=token_data)
+    refresh_token = create_refresh_token(data=token_data)
     
     from app.core.config import settings
     return Token(
         access_token=access_token,
         token_type="bearer",
-        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        refresh_token=refresh_token,
+        refresh_expires_in=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
+    )
+
+
+def refresh_token_controller(
+    session: Session,
+    refresh_data: RefreshTokenRequest
+) -> Token:
+    """
+    Exchange a refresh token for a new access token.
+    """
+    token_data = verify_refresh_token(refresh_data.refresh_token)
+
+    if token_data is None or token_data.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    user = user_service.get_user(session, token_data.user_id)
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    token_payload = {"sub": str(user.id), "username": user.username, "email": user.email}
+    access_token = create_access_token(data=token_payload)
+    refresh_token = create_refresh_token(data=token_payload)
+
+    from app.core.config import settings
+    return Token(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        refresh_token=refresh_token,
+        refresh_expires_in=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
     )
 
 

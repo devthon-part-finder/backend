@@ -31,7 +31,8 @@ from app.schemas.user import (
     UserList,
     UserSearchResponse,
     UserLogin,
-    PasswordChange
+    PasswordChange,
+    RefreshTokenRequest
 )
 from app.controllers import user_controller
 
@@ -45,10 +46,10 @@ router = APIRouter()
 
 @router.post(
     "/register",
-    response_model=UserRead,
+    response_model=Token,
     status_code=status.HTTP_201_CREATED,
     summary="Register a new user",
-    description="Create a new user account. Password will be hashed before storage."
+    description="Create a new user account. Returns access and refresh tokens."
 )
 def register(
     user_data: UserCreate,
@@ -61,9 +62,9 @@ def register(
     - **username**: Display name (3-50 characters)
     - **password**: Password (min 8 characters, will be hashed)
     
-    Returns the created user (without password).
+    Returns access and refresh tokens.
     """
-    return user_controller.create_user_controller(session, user_data)
+    return user_controller.register_with_tokens_controller(session, user_data)
 
 
 @router.post(
@@ -85,6 +86,22 @@ def login(
     Returns JWT access token for authenticated requests.
     """
     return user_controller.login_controller(session, login_data)
+
+
+@router.post(
+    "/refresh",
+    response_model=Token,
+    summary="Refresh access token",
+    description="Exchange a refresh token for a new access token."
+)
+def refresh_token(
+    refresh_data: RefreshTokenRequest,
+    session: Session = Depends(get_session)
+):
+    """
+    Refresh access token using a valid refresh token.
+    """
+    return user_controller.refresh_token_controller(session, refresh_data)
 
 
 # ==============================================================================

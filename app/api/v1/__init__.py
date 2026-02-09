@@ -6,7 +6,7 @@
 # ==============================================================================
 
 from fastapi import APIRouter
-from app.api.v1.endpoints import users, parts
+from app.api.v1.endpoints import users, web_agent, parts
 
 # Create the main v1 router that will include all endpoint routers
 api_v1_router = APIRouter()
@@ -15,6 +15,7 @@ api_v1_router = APIRouter()
 # Pattern: api_v1_router.include_router(module.router, prefix="/resource", tags=["Resource"])
 api_v1_router.include_router(users.router, prefix="/users", tags=["Users"])
 api_v1_router.include_router(parts.router, prefix="/parts", tags=["Parts"])
+api_v1_router.include_router(web_agent.router, prefix="/web-agent", tags=["Web Agent"])
 
 # ==============================================================================
 # HOW TO ADD NEW ENDPOINTS:
