@@ -1,0 +1,72 @@
+# ==============================================================================
+# GitHub Actions - Build & Push Docker Image to AWS ECR
+# ==============================================================================
+# Triggers on manual dispatch only.
+#
+# Required GitHub Secrets:
+#   AWS_ACCESS_KEY_ID      - IAM user access key
+#   AWS_SECRET_ACCESS_KEY  - IAM user secret key
+#   AWS_REGION             - e.g. us-east-1
+#   ECR_REPOSITORY         - ECR repository name (e.g. partfinder-api)
+#   AWS_ACCOUNT_ID         - AWS account ID (12-digit number)
+# ==============================================================================
+
+name: Build & Push to ECR
+
+on:
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+
+jobs:
+  build-and-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "timestamp=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
+
+      - name: Build, tag, and push image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG_SHA: ${{ steps.meta.outputs.sha_short }}
+          IMAGE_TAG_TS: ${{ steps.meta.outputs.timestamp }}
+        run: |
+          docker build \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG_SHA \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG_TS \
+            .
+
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY --all-tags
+
+      - name: Output image URI
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          echo "### 🐳 Image pushed to ECR" >> $GITHUB_STEP_SUMMARY
+          echo "- \`$ECR_REGISTRY/$ECR_REPOSITORY:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`$ECR_REGISTRY/$ECR_REPOSITORY:${{ steps.meta.outputs.sha_short }}\`" >> $GITHUB_STEP_SUMMARY
