@@ -24,9 +24,16 @@ from app.schemas.user import (
     UserSearchResponse,
     UserLogin,
     PasswordChange,
-    RefreshTokenRequest
+    RefreshTokenRequest,
+    ForgotPasswordSendCodeRequest,
+    ForgotPasswordSendCodeResponse,
+    ForgotPasswordVerifyCodeRequest,
+    ForgotPasswordVerifyCodeResponse,
+    ForgotPasswordResetPasswordRequest,
+    ForgotPasswordResetPasswordResponse,
 )
 from app.services import user_service
+from app.services import password_reset_service
 from app.core.security import create_access_token, create_refresh_token, verify_refresh_token, Token
 
 # Configure logging
@@ -350,6 +357,74 @@ def change_password_controller(
         )
     
     return {"message": "Password changed successfully"}
+
+
+def forgot_password_send_code_controller(
+    session: Session,
+    data: ForgotPasswordSendCodeRequest
+) -> ForgotPasswordSendCodeResponse:
+    """Send a 6-digit verification code to a registered user's email."""
+    try:
+        password_reset_service.send_forgot_password_verification_code(session, str(data.email))
+        return ForgotPasswordSendCodeResponse(message="Verification code sent")
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error sending verification code: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send verification code"
+        )
+
+
+def forgot_password_verify_code_controller(
+    session: Session,
+    data: ForgotPasswordVerifyCodeRequest
+) -> ForgotPasswordVerifyCodeResponse:
+    """Check whether a forgot-password verification code is correct."""
+    try:
+        password_reset_service.verify_forgot_password_verification_code(
+            session,
+            str(data.email),
+            data.code,
+        )
+        return ForgotPasswordVerifyCodeResponse(valid=True, message="Verification code is valid")
+    except ValueError as e:
+        return ForgotPasswordVerifyCodeResponse(valid=False, message=str(e))
+    except Exception as e:
+        logger.error(f"Error verifying code: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to verify verification code"
+        )
+
+
+def forgot_password_reset_password_controller(
+    session: Session,
+    data: ForgotPasswordResetPasswordRequest
+) -> ForgotPasswordResetPasswordResponse:
+    """Reset a user's password using a valid forgot-password verification code."""
+    try:
+        password_reset_service.reset_password_with_verification_code(
+            session,
+            str(data.email),
+            data.code,
+            data.new_password,
+        )
+        return ForgotPasswordResetPasswordResponse(message="Password reset successfully")
+    except ValueError as e:
+        detail = str(e)
+        status_code = status.HTTP_404_NOT_FOUND if detail == "Email is not registered" else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=detail)
+    except Exception as e:
+        logger.error(f"Error resetting password: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset password"
+        )
 
 
 # ==============================================================================

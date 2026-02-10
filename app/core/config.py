@@ -16,6 +16,11 @@
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
+from pathlib import Path
+
+
+_BACKEND_ROOT = Path(__file__).resolve().parents[2]
+_ENV_FILE = _BACKEND_ROOT / ".env"
 
 
 class Settings(BaseSettings):
@@ -64,6 +69,18 @@ class Settings(BaseSettings):
     
     # Algorithm for JWT encoding
     JWT_ALGORITHM: str = "HS256"
+
+    # ==========================================================================
+    # EMAIL / SMTP CONFIGURATION (Forgot Password)
+    # ==========================================================================
+    SMTP_HOST: Optional[str] = "smtp.gmail.com"
+    SMTP_PORT: Optional[int] = 587
+    SMTP_USERNAME: Optional[str] = "susa.d.dilmin@gmail.com"
+    SMTP_PASSWORD: Optional[str] = "rmnq rbkz skpp iyal"
+    SMTP_FROM_EMAIL: Optional[str] = "susa.d.dilmin@gmail.com"
+    SMTP_USE_TLS: Optional[bool] = True
+
+    PASSWORD_RESET_CODE_EXPIRE_MINUTES: int = 10
     
     # ==========================================================================
     # ML MODEL CONFIGURATION
@@ -131,8 +148,8 @@ class Settings(BaseSettings):
     # PYDANTIC SETTINGS CONFIGURATION
     # ==========================================================================
     model_config = SettingsConfigDict(
-        # Load from .env file in project root
-        env_file=".env",
+        # Load from backend/.env regardless of current working directory
+        env_file=str(_ENV_FILE),
         # .env file encoding
         env_file_encoding="utf-8",
         # Case-insensitive environment variable matching

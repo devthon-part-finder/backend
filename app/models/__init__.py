@@ -14,9 +14,10 @@
 # ==============================================================================
 
 from app.models.user import User
+from app.models.password_reset_code import PasswordResetCode
 
 # Add new model imports here as you create them:
 # from app.models.product import Product
 # from app.models.category import Category
 
-__all__ = ["User"]
+__all__ = ["User", "PasswordResetCode"]
