@@ -151,6 +151,13 @@ class PartSearchRequest(BaseModel):
         json_schema_extra={"example": 10}
     )
     
+    context_description: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description="Additional context about what the part is used for (helps filter irrelevant results)",
+        json_schema_extra={"example": "servo motor for industrial sewing machine"}
+    )
+    
     include_scraping: bool = Field(
         default=True,
         description="Whether to use AI scraping for results without direct pricing (slower but more accurate)",

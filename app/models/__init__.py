@@ -15,9 +15,19 @@
 
 from app.models.user import User
 from app.models.password_reset_code import PasswordResetCode
+from app.models.chat import Chat, ChatType, ChatStatus
+from app.models.prediction import Prediction, PredictionType
+from app.models.document_chunk import DocumentChunk
+from app.models.search_result import SearchResult
 
-# Add new model imports here as you create them:
-# from app.models.product import Product
-# from app.models.category import Category
-
-__all__ = ["User", "PasswordResetCode"]
+__all__ = [
+    "User",
+    "PasswordResetCode",
+    "Chat",
+    "ChatType",
+    "ChatStatus",
+    "Prediction",
+    "PredictionType",
+    "DocumentChunk",
+    "SearchResult",
+]

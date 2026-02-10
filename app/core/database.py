@@ -71,9 +71,21 @@ def create_db_and_tables() -> None:
     """
     # Import all models to register them with SQLModel.metadata
     # This import is here to avoid circular imports
-    import app.models  # noqa: F401
-    # Add more model imports as you create them:
-    # from app.models import Product, Category, etc.
+    from app.models import (  # noqa: F401
+        User,
+        PasswordResetCode,
+        Chat,
+        Prediction,
+        DocumentChunk,
+        SearchResult,
+    )
+
+    # Ensure pgvector extension is enabled (required for DocumentChunk embeddings)
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.commit()
+        logger.info("pgvector extension ensured")
     
     logger.info("Creating database tables...")
     SQLModel.metadata.create_all(engine)

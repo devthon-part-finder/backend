@@ -26,6 +26,7 @@
 #   results = await web_agent_service.find_parts("SKF 6205-2RS bearing")
 # ==============================================================================
 
+import asyncio
 import httpx
 import logging
 import time
@@ -104,7 +105,7 @@ JSON Response:"""
         """Initialize Gemini client using google-genai SDK."""
         if settings.GEMINI_API_KEY:
             self.gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
-            self.gemini_model_name = "gemini-2.0-flash"
+            self.gemini_model_name = "gemini-2.5-flash"
             logger.info("Gemini client initialized with google-genai SDK")
         else:
             self.gemini_client = None
@@ -113,7 +114,7 @@ JSON Response:"""
     async def _search_serper(
         self,
         query: str,
-        location: str = "Sri Lanka",
+        location: Optional[str] = "Sri Lanka",
         num_results: int = 10,
         search_type: str = "search"
     ) -> list[dict]:
@@ -122,7 +123,7 @@ JSON Response:"""
         
         Args:
             query: Search query string
-            location: Target location for localized results
+            location: Target location for localized results (None = global)
             num_results: Maximum number of results
             search_type: "search" for organic or "shopping" for Google Shopping
         
@@ -134,21 +135,23 @@ JSON Response:"""
         
         url = self.SERPER_SHOPPING_URL if search_type == "shopping" else self.SERPER_API_URL
         
-        # Map location to Google country code
-        gl_map = {
-            "Sri Lanka": "lk",
-            "India": "in",
-            "USA": "us",
-            "UK": "gb",
-        }
-        gl = gl_map.get(location, "lk")
-        
         payload = {
             "q": query,
-            "location": location,
-            "gl": gl,
             "num": num_results,
         }
+        
+        # Only add location/gl params if specified
+        # For Shopping, we often skip location since Google Shopping has limited
+        # inventory for many countries (e.g., Sri Lanka returns 0 results)
+        if location:
+            gl_map = {
+                "Sri Lanka": "lk",
+                "India": "in",
+                "USA": "us",
+                "UK": "gb",
+            }
+            payload["location"] = location
+            payload["gl"] = gl_map.get(location, "lk")
         
         headers = {
             "X-API-KEY": settings.SERPER_API_KEY,
@@ -173,6 +176,12 @@ JSON Response:"""
                 results.extend(shopping)
         
         logger.info(f"Serper returned {len(results)} results")
+        # Log raw result fields for debugging
+        for i, r in enumerate(results[:3]):
+            logger.info(f"  Raw result {i+1}: title={r.get('title','N/A')[:60]}, "
+                        f"price={r.get('price','N/A')}, "
+                        f"imageUrl={bool(r.get('imageUrl'))}, "
+                        f"link={r.get('link','')[:60]}")
         return results
     
     async def _scrape_and_parse(self, url: str) -> Optional[dict]:
@@ -218,14 +227,33 @@ JSON Response:"""
             # Use Gemini to extract product data (using google-genai SDK)
             prompt = self.EXTRACTION_PROMPT.format(html_content=html[:max_bytes])
             
-            response = await self.gemini_client.aio.models.generate_content(
-                model=self.gemini_model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.1,  # Low temperature for factual extraction
-                    max_output_tokens=500,
-                )
-            )
+            # Retry with exponential backoff on rate-limit errors
+            max_retries = 3
+            response = None
+            for attempt in range(max_retries):
+                try:
+                    response = await self.gemini_client.aio.models.generate_content(
+                        model=self.gemini_model_name,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=0.1,
+                            max_output_tokens=300,
+                            response_mime_type="application/json",
+                        )
+                    )
+                    break
+                except Exception as api_err:
+                    err_str = str(api_err)
+                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                        wait = 2 ** (attempt + 1)
+                        logger.warning(f"Rate limited on scrape (attempt {attempt+1}), waiting {wait}s...")
+                        await asyncio.sleep(wait)
+                        if attempt == max_retries - 1:
+                            logger.error(f"Rate limit not resolved after {max_retries} retries for {url}")
+                            return None
+                    else:
+                        raise
+            
             response_text = response.text.strip()
             
             # Parse JSON response
@@ -263,20 +291,37 @@ JSON Response:"""
         price = None
         currency = "LKR"
         
-        # Shopping results have direct price
-        if "price" in result:
+        # Shopping results have direct price (format: "LKR\u00a054,423.31" or "$19.99")
+        if "price" in result and result["price"]:
             price_str = str(result["price"])
-            # Extract numeric price
-            price_match = re.search(r'[\d,]+\.?\d*', price_str.replace(',', ''))
-            if price_match:
-                price = float(price_match.group())
-            # Try to detect currency
+            logger.debug(f"Raw price string: {repr(price_str)}")
+            
+            # Detect currency FIRST (before stripping)
             if "USD" in price_str or "$" in price_str:
                 currency = "USD"
             elif "LKR" in price_str or "Rs" in price_str:
                 currency = "LKR"
             elif "EUR" in price_str or "€" in price_str:
                 currency = "EUR"
+            elif "GBP" in price_str or "£" in price_str:
+                currency = "GBP"
+            elif "INR" in price_str or "₹" in price_str:
+                currency = "INR"
+            
+            # Strip everything except digits, dots, and commas
+            # "LKR\u00a054,423.31" → "54,423.31"
+            cleaned = re.sub(r'[^\d.,]', '', price_str)
+            # Remove commas (thousands separators): "54,423.31" → "54423.31"
+            cleaned = cleaned.replace(',', '')
+            # Handle edge case of trailing dot: "100." → "100"
+            cleaned = cleaned.rstrip('.')
+            
+            if cleaned:
+                try:
+                    price = float(cleaned)
+                    logger.info(f"Parsed price: {price} {currency} from {repr(price_str)}")
+                except ValueError:
+                    logger.warning(f"Could not parse price from cleaned string: {repr(cleaned)}")
         
         # Extract vendor name
         vendor_name = result.get("source", result.get("site", "Unknown"))
@@ -297,18 +342,68 @@ JSON Response:"""
         if result.get("reviews"):
             confidence += 0.1
         
+        # Extract image URL — Serper uses different field names across search types
+        image_url = (
+            result.get("imageUrl")
+            or result.get("thumbnailUrl")
+            or result.get("thumbnail")
+            or result.get("image")
+        )
+        if image_url:
+            logger.info(f"Found image URL for '{result.get('title', 'N/A')}': {image_url[:80]}...")
+        
+        # For shopping results, the link is a Google redirect — try to extract direct URL
+        product_url = result.get("link", "")
+        
         return VendorResult(
             vendor_name=vendor_name,
             product_title=result.get("title", "Unknown Product"),
             price=price,
             currency=currency,
             availability=Availability.UNKNOWN.value,
-            product_url=result.get("link", ""),
+            product_url=product_url,
             source_type=source_type,
             confidence_score=min(confidence, 1.0),
-            image_url=result.get("imageUrl"),
+            image_url=image_url,
             description=result.get("snippet", result.get("description"))
         )
+    
+    def _is_relevant(self, vendor_result: VendorResult, request: PartSearchRequest) -> bool:
+        """
+        Check if a vendor result is relevant to the part search.
+        
+        Filters out results that are obviously irrelevant based on category
+        mismatch (e.g., motorcycle results when searching for sewing machine parts).
+        
+        Args:
+            vendor_result: The parsed vendor result
+            request: The original search request with context
+        
+        Returns:
+            True if the result appears relevant
+        """
+        title_lower = (vendor_result.product_title or "").lower()
+        desc_lower = (vendor_result.description or "").lower()
+        combined = f"{title_lower} {desc_lower}"
+        
+        # If we have context description, check for obvious mismatches
+        if request.context_description:
+            context_lower = request.context_description.lower()
+            
+            # Build negative filter: if context says "sewing machine" but result says
+            # "motorcycle" or "car", that's clearly wrong
+            irrelevant_categories = {
+                "motorcycle", "motorbike", "scooter", "automobile",
+                "truck", "atv", "snowmobile", "lawn mower", "lawnmower",
+                "go-kart", "go kart", "golf cart",
+            }
+            
+            for bad_word in irrelevant_categories:
+                if bad_word in combined and bad_word not in context_lower:
+                    logger.debug(f"Filtered out (irrelevant category '{bad_word}'): {vendor_result.product_title}")
+                    return False
+        
+        return True
     
     async def find_parts(self, request: PartSearchRequest) -> PartSearchResponse:
         """
@@ -325,36 +420,74 @@ JSON Response:"""
         fast_path_count = 0
         slow_path_count = 0
         
-        # Build search query
-        query_parts = ["buy", request.part_name]
-        if request.part_number:
-            query_parts.append(request.part_number)
-        if request.manufacturer:
-            query_parts.append(request.manufacturer)
-        query_parts.append(request.location)
+        # Build search queries — different strategies for Shopping vs Organic
+        # Shopping API works best with short, product-focused queries
+        # Organic search can handle longer, more descriptive queries
         
-        search_query = " ".join(query_parts)
-        logger.info(f"Search query: {search_query}")
+        # Shopping query: use context_description if available (more natural product terms)
+        # e.g., "servo motor sewing machine 550W" works better than "Servo Motor SC-920C"
+        # NOTE: Don't include location in shopping query — gl param handles that
+        if request.context_description:
+            shopping_query = f"buy {request.context_description[:100]}"
+        else:
+            shopping_query = f"buy {request.part_name}"
+        if request.manufacturer:
+            shopping_query = f"buy {request.part_name} {request.manufacturer}"
+        
+        # Organic/detailed query: includes everything for relevance
+        detail_query_parts = ["buy", request.part_name]
+        if request.part_number:
+            detail_query_parts.append(request.part_number)
+        if request.manufacturer:
+            detail_query_parts.append(request.manufacturer)
+        if request.context_description:
+            detail_query_parts.append(request.context_description[:80])
+        detail_query_parts.append(request.location)
+        detail_query = " ".join(detail_query_parts)
+        
+        logger.info(f"Shopping query: {shopping_query}")
+        logger.info(f"Detail query: {detail_query}")
         
         try:
             # Step 1: Try Shopping search first (best for products with prices)
+            # NOTE: Don't restrict location for Shopping — Google Shopping has limited
+            # inventory for many countries. Let it search globally.
             shopping_results = await self._search_serper(
-                query=search_query,
-                location=request.location,
-                num_results=request.max_results,
+                query=shopping_query,
+                location=None,  # No location restriction for Shopping
+                num_results=request.max_results * 3,
                 search_type="shopping"
             )
             
-            # Process shopping results (Fast Path)
-            for raw_result in shopping_results[:request.max_results]:
+            # Fallback: if shopping returned 0, try with just the part name
+            if not shopping_results:
+                fallback_query = f"buy {request.part_name}"
+                logger.info(f"Shopping returned 0 results, retrying with: {fallback_query}")
+                shopping_results = await self._search_serper(
+                    query=fallback_query,
+                    location=None,
+                    num_results=request.max_results * 3,
+                    search_type="shopping"
+                )
+            
+            # Process shopping results (Fast Path) — filter by relevance
+            for raw_result in shopping_results[:request.max_results * 2]:  # Fetch extra to filter
                 vendor_result = self._parse_serper_result(raw_result, SourceType.SERPER_SNIPPET.value)
-                results.append(vendor_result)
-                fast_path_count += 1
+                if self._is_relevant(vendor_result, request):
+                    logger.info(f"  [PASS] Shopping: {vendor_result.product_title[:60]} | "
+                                f"price={vendor_result.price} {vendor_result.currency} | "
+                                f"image={bool(vendor_result.image_url)}")
+                    results.append(vendor_result)
+                    fast_path_count += 1
+                    if len(results) >= request.max_results:
+                        break
+                else:
+                    logger.info(f"  [FILTERED] Shopping: {vendor_result.product_title[:60]}")
             
             # Step 2: If not enough results, also do organic search
             if len(results) < request.max_results:
                 organic_results = await self._search_serper(
-                    query=search_query,
+                    query=detail_query,
                     location=request.location,
                     num_results=request.max_results - len(results),
                     search_type="search"
@@ -365,6 +498,10 @@ JSON Response:"""
                         break
                     
                     vendor_result = self._parse_serper_result(raw_result, SourceType.SERPER_SNIPPET.value)
+                    
+                    # Filter irrelevant results (e.g., motorcycles when searching for servo motors)
+                    if not self._is_relevant(vendor_result, request):
+                        continue
                     
                     # Step 3: Slow Path - If no price and scraping enabled, try AI extraction
                     if vendor_result.price is None and request.include_scraping and vendor_result.product_url:
@@ -399,9 +536,18 @@ JSON Response:"""
         # Sort by confidence score (highest first)
         results.sort(key=lambda x: x.confidence_score, reverse=True)
         
+        # Log final results summary
+        logger.info(f"find_parts returning {len(results)} results "
+                     f"(fast={fast_path_count}, slow={slow_path_count})")
+        for i, r in enumerate(results):
+            logger.info(f"  Result {i+1}: {r.product_title[:50]} | "
+                        f"price={r.price} {r.currency} | "
+                        f"image={'YES' if r.image_url else 'NO'} | "
+                        f"vendor={r.vendor_name}")
+        
         return PartSearchResponse(
             results=results,
-            search_query=search_query,
+            search_query=shopping_query,
             total_results=len(results),
             fast_path_count=fast_path_count,
             slow_path_count=slow_path_count,
