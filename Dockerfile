@@ -1,7 +1,6 @@
 # ==============================================================================
 # Devthon PartFinder API - Dockerfile
-# ==============================================================================
-# Multi-stage build for a smaller final image
+# Uvicorn only, runs as root
 # ==============================================================================
 
 # ---------- Stage 1: Builder ----------
@@ -9,7 +8,7 @@ FROM python:3.14-slim AS builder
 
 WORKDIR /app
 
-# Install system dependencies required for building packages
+# Build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
@@ -24,29 +23,25 @@ FROM python:3.14-slim
 
 WORKDIR /app
 
-# Install runtime system dependencies
+# Runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed Python packages from builder
+# Copy installed Python packages
 COPY --from=builder /install /usr/local
 
 # Copy application code
 COPY . .
 
-# Create a non-root user for security
-RUN adduser --disabled-password --no-create-home appuser
-USER appuser
-
-# Expose the port the app runs on
+# Expose app port
 EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# Run the application with gunicorn + uvicorn workers
-CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:8000", "--workers", "4", "--timeout", "120", "app.main:app"]
+# Start FastAPI with Uvicorn
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
