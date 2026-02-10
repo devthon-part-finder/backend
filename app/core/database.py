@@ -71,7 +71,7 @@ def create_db_and_tables() -> None:
     """
     # Import all models to register them with SQLModel.metadata
     # This import is here to avoid circular imports
-    from app.models import User  # noqa: F401
+    import app.models  # noqa: F401
     # Add more model imports as you create them:
     # from app.models import Product, Category, etc.
     

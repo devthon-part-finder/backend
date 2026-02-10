@@ -241,6 +241,73 @@ class PasswordChange(BaseModel):
 
 
 # ==============================================================================
+# FORGOT PASSWORD (Verification Code)
+# ==============================================================================
+
+class ForgotPasswordSendCodeRequest(BaseModel):
+    """Request body for sending a 6-digit verification code to email."""
+    email: EmailStr = Field(
+        ...,
+        description="Registered user email address",
+        json_schema_extra={"example": "john@example.com"}
+    )
+
+
+class ForgotPasswordSendCodeResponse(BaseModel):
+    """Response for forgot-password send-code."""
+    message: str = Field(..., description="Result message")
+
+
+class ForgotPasswordVerifyCodeRequest(BaseModel):
+    """Request body for verifying a 6-digit forgot-password code."""
+    email: EmailStr = Field(
+        ...,
+        description="Registered user email address",
+        json_schema_extra={"example": "john@example.com"}
+    )
+    code: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        description="6-digit verification code",
+        json_schema_extra={"example": "123456"}
+    )
+
+
+class ForgotPasswordVerifyCodeResponse(BaseModel):
+    """Response for forgot-password verify-code."""
+    valid: bool = Field(..., description="Whether the code is valid")
+    message: str = Field(..., description="Result message")
+
+
+class ForgotPasswordResetPasswordRequest(BaseModel):
+    """Request body for resetting password using a verified 6-digit code."""
+    email: EmailStr = Field(
+        ...,
+        description="Registered user email address",
+        json_schema_extra={"example": "john@example.com"}
+    )
+    code: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        description="6-digit verification code",
+        json_schema_extra={"example": "123456"}
+    )
+    new_password: str = Field(
+        ...,
+        min_length=8,
+        max_length=100,
+        description="New password"
+    )
+
+
+class ForgotPasswordResetPasswordResponse(BaseModel):
+    """Response for forgot-password reset-password."""
+    message: str = Field(..., description="Result message")
+
+
+# ==============================================================================
 # HOW TO ADD NEW SCHEMAS:
 # ==============================================================================
 # 1. Identify what data shape you need (create, read, update, auth)

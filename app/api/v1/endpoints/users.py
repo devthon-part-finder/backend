@@ -32,7 +32,13 @@ from app.schemas.user import (
     UserSearchResponse,
     UserLogin,
     PasswordChange,
-    RefreshTokenRequest
+    RefreshTokenRequest,
+    ForgotPasswordSendCodeRequest,
+    ForgotPasswordSendCodeResponse,
+    ForgotPasswordVerifyCodeRequest,
+    ForgotPasswordVerifyCodeResponse,
+    ForgotPasswordResetPasswordRequest,
+    ForgotPasswordResetPasswordResponse,
 )
 from app.controllers import user_controller
 
@@ -149,6 +155,53 @@ def change_password(
         current_user.user_id,
         password_data
     )
+
+
+# ==============================================================================
+# FORGOT PASSWORD
+# ==============================================================================
+
+
+@router.post(
+    "/forgot-password/send-code",
+    response_model=ForgotPasswordSendCodeResponse,
+    summary="Send forgot-password verification code",
+    description="Send a 6-digit verification code to the entered email if it belongs to a user."
+)
+def forgot_password_send_code(
+    data: ForgotPasswordSendCodeRequest,
+    session: Session = Depends(get_session),
+):
+    """Forgot password: send a 6-digit verification code to a registered email."""
+    return user_controller.forgot_password_send_code_controller(session, data)
+
+
+@router.post(
+    "/forgot-password/verify-code",
+    response_model=ForgotPasswordVerifyCodeResponse,
+    summary="Verify forgot-password code",
+    description="Check whether the entered 6-digit verification code is valid for the email."
+)
+def forgot_password_verify_code(
+    data: ForgotPasswordVerifyCodeRequest,
+    session: Session = Depends(get_session),
+):
+    """Forgot password: verify a 6-digit code."""
+    return user_controller.forgot_password_verify_code_controller(session, data)
+
+
+@router.post(
+    "/forgot-password/reset-password",
+    response_model=ForgotPasswordResetPasswordResponse,
+    summary="Reset password",
+    description="Reset the user's password using a valid 6-digit verification code."
+)
+def forgot_password_reset_password(
+    data: ForgotPasswordResetPasswordRequest,
+    session: Session = Depends(get_session),
+):
+    """Forgot password: reset password using a valid 6-digit code."""
+    return user_controller.forgot_password_reset_password_controller(session, data)
 
 
 # ==============================================================================
